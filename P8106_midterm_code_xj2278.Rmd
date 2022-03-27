@@ -2,7 +2,7 @@
 title: "P8106 Midterm Project"
 author: "Xiaoluo Jiao"
 date: "3/16/2022"
-output: html_document
+output: github_document
 ---
 
 ```{r setup, include=FALSE}
@@ -13,6 +13,7 @@ library(glmnet)
 library(mgcv)
 library(MASS)
 library(pROC)
+library(vip)
 
 knitr::opts_chunk$set(
   fig.width = 6, 
@@ -34,19 +35,20 @@ scale_fill_discrete = scale_fill_viridis_d
 
 ```{r}
 # Prepare the data
+# Data source: https://www.kaggle.com/vishalyo990/prediction-of-quality-of-wine/data 
 data = read_csv("winequality-red.csv") %>% 
   janitor::clean_names() %>% 
   mutate(
     quality = case_when(
-      quality < 7 ~ "poor", 
+      quality < 7 ~ "not_good", 
       quality >= 7 ~ "good"
     ), 
     quality = as.factor(quality), 
-    quality = fct_relevel(quality, c("poor", "good"))
+    quality = fct_relevel(quality, c("not_good", "good"))
   ) 
 
 # partition
-set.seed(105)
+set.seed(23)
 indexTrain <- createDataPartition(y = data$quality, p = 0.7, list = FALSE)
 train <- data[indexTrain, ] 
 test <- data[-indexTrain, ]
@@ -86,7 +88,7 @@ According to the density plots, we can see that a better quality score might be 
 
 ```{r glm}
 # Logistic regression
-set.seed(105)
+set.seed(23)
 glm.fit = glm(quality ~ ., 
               data = data, 
               subset = indexTrain, 
@@ -104,6 +106,8 @@ model.glm = train(train_x,
                   metric = "ROC",
                   trControl = ctrl1)
 summary(model.glm)
+
+vip(model.glm$finalModel)
 ```
 
 Here, we fit a logistic regression using the training data, and at a significant level of 0.05, `volatile_acidity`, `residual_sugar`, `chlorides`, `total_sulfur_dioxide`, `sulphates`, `alcohol` appear to be statistically significant. 
@@ -111,7 +115,7 @@ Here, we fit a logistic regression using the training data, and at a significant
 ## GAM
 
 ```{r gam}
-set.seed(105)
+set.seed(23)
 model.gam <- train(train_x,
                    train_y,
                    method = "gam",
@@ -120,12 +124,13 @@ model.gam <- train(train_x,
 model.gam$finalModel
 #gam.pred = predict(model.gam, newdata = testData_median, type = "prob")[,2]
 #roc.gam = roc(testData_median$target, gam.pred)
+
 ```
 
 ## MARS
 
 ```{r mars}
-set.seed(105)
+set.seed(23)
 mars_grid <- expand.grid(degree = 1:3, nprune = 2:25)
 
 mars.fit <- train(train_x, train_y,
@@ -135,6 +140,9 @@ mars.fit <- train(train_x, train_y,
 summary(mars.fit)
 ggplot(mars.fit)
 mars.fit$bestTune
+
+#important variables
+vip(mars.fit$finalModel)
 ```
 
 ## Penalized logistic
@@ -142,7 +150,7 @@ mars.fit$bestTune
 ```{r}
 glmnGrid <- expand.grid(.alpha = seq(0, 1, length = 6),
                         .lambda = exp(seq(-8, -1, length = 20)))
-set.seed(105)
+set.seed(23)
 model.glmn <- train(train_x, 
                     train_y,
                     method = "glmnet",
@@ -153,12 +161,15 @@ model.glmn$bestTune
 summary(model.glmn)
 #glmn.pred <- predict(model.glmn, newdata = testData_median, type = "prob")[,2]
 #roc.glmn <- roc(testData_median$target, glmn.pred)
+
+# important variable
+vip(model.glmn$finalModel)
 ```
 
 ## LDA
 
 ```{r}
-set.seed(105)
+set.seed(23)
 lda.fit <- lda(quality ~ ., 
                data = data,
                subset = indexTrain)
@@ -166,22 +177,23 @@ plot(lda.fit)
 summary(lda.fit)
 
 #using caret 
-set.seed(105)
+set.seed(23)
 model.lda <- train(train_x,
                    train_y,
                    method = "lda",
                    metric = "ROC",
                    trControl = ctrl1)
+
 ```
 
 
 
 ## Confusion Matrix for test data
 ```{r}
-# confusion matrix 
-test.pred.prob <- predict(glm.fit, newdata = test,
+# confusion matrix for glmn
+test.pred.prob <- predict(model.glmn, newdata = test,
                            type = "response")
-test.pred <- rep("poor", length(test.pred.prob))
+test.pred <- rep("not_good", length(test.pred.prob))
 test.pred[test.pred.prob > 0.5] <- "good"
 
 confusionMatrix(data = as.factor(test.pred),
@@ -205,13 +217,28 @@ bwplot(res, metric = "ROC")
 # ROC curve
 
 ```{r}
-# ROC curve for MARS
+glm.pred <- predict(model.glm, newdata = test_x, type = "prob")[,2]
 glmn.pred <- predict(model.glmn, newdata = test_x, type = "prob")[,2]
+gam.pred <- predict(model.gam, newdata = test_x, type = "prob")[,2]
+mars.pred <- predict(mars.fit, newdata = test_x, type = "prob")[,2]
+lda.pred <- predict(model.lda, newdata = test_x, type = "prob")[,2]
+
+roc.glm <- roc(test_y, glm.pred)
 roc.glmn <- roc(test_y, glmn.pred)
-plot(roc.glmn, legacy.axes = TRUE)
+roc.gam <- roc(test_y, gam.pred)
+roc.mars <- roc(test_y, mars.pred)
+roc.lda <- roc(test_y, lda.pred)
 
 # AUC
-auc_glmn <- roc.glmn$auc[1]
-auc_glmn
+auc <- c(roc.glm$auc[1], roc.glmn$auc[1], roc.gam$auc[1], roc.mars$auc[1], roc.lda$auc[1])
+
+# ROC curves
+modelNames <- c("glm", "glmn", "gam", "mars", "lda")
+
+ggroc(list(roc.glm, roc.glmn, roc.gam, roc.mars, roc.lda), legacy.axes = TRUE) +
+scale_color_discrete(labels = paste0(modelNames, " (", round(auc,3),")"),
+name = "Models (AUC)") +
+geom_abline(intercept = 0, slope = 1, color = "grey")
 ```
+
 

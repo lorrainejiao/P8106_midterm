@@ -1,0 +1,98 @@
+---
+title: "P8106 Midterm Project Report"
+author: "Xiaoluo Jiao"
+date: "3/26/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(caret)
+library(AppliedPredictiveModeling)
+library(glmnet)
+library(mgcv)
+library(MASS)
+library(pROC)
+library(vip)
+
+knitr::opts_chunk$set(
+  fig.width = 6, 
+  fig.asp = .6,
+  out.width = "90%")
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+```
+
+
+# Introduction
+
+Recently, wine is increasingly enjoyed by a large range of consumers. For wine industry, the quality assessment of wine is a key element for wine making process since it can be used to improve wine making and help to set prices. Thus, identifying the most influential physicochemical factors for the wine quality is important. \
+
+## Dataset
+
+The this project, we are interested in which physiochemical properties are critical in allowing a wine to have higher quality and building a model to predict the quality of wine based on those physiochemical features. Our dataset is related to the red variant of the Portuguese "Vinho Verde" wine from the north of Portugal. It is built with 1599 red wine examples, and 11 physicochemical statistics are included. The features are: 
+* fixed_acidity
+* volatile_acidity
+* citric_acid
+* residual_sugar
+* chlorides
+* free_sulfur_dioxide
+* total_sulfur_dioxide
+* density
+* p_h
+* sulphates
+* alcohol
+* quality: based on sensory data, score between 0 and 10
+
+## Data Preparation
+
+I keep all 11 variables in the original dataset as predictors. For the outcome variable `quality`, I set a cutoff making a 7 or higher quality score gets classified as "good" and the remainder as "not good", because I am interested in a classification model for selecting "high quality wine" in this project. Then I convert `quality` into a factor variable with binary responses. There is no missing data. \
+
+After the data cleaning, I split the dataset into two parts: 70% of it goes into the training data, and 30% goes into the test data. The training data contains 1120 observations and the test data contains 479 observations. 
+
+```{r data preparation, include=FALSE}
+
+```
+
+
+
+# Exploratory analysis/visualization
+
+```{r graphical summary}
+
+```
+
+
+Is there any interesting structure present in the data?
+What were your findings?
+Here you can use any techniques as long as they are adequately explained. If you cannot find anything interesting, then describe what you tried and show that there isn’t much visible structure. Data science is NOT manipulating the data in some way until you get an answer.
+
+
+
+# Models
+
+What predictor variables did you include?
+What technique did you use? What assumptions, if any, are being made by using this technique?
+If there were tuning parameters, how did you pick their values?
+Discuss the training/test performance if you have a test data set.
+Which variables play important roles in predicting the response?
+What are the limitations of the models you used (if there are any)? Are the models flexible enough to capture the underlying truth?
+...
+
+To train classifiers, we choose `Lasso logistics`, `MARS`, `KNN`, `LDA`, `QDA` and `TREE` models to train our data with 5-fold cross validation.
+When training, `ROC` is used as loss function for our model, as we intent to build a model with highest classification ability to predict whether a client has heart disease. 
+
+penalized logistic: to add penalty to our loss, we can shrink the coefficients to correlated predictors towards each other by tuning alpha and lambda
+ 
+
+# Conclusions
+
+What were your findings? Are they what you expect? What insights into the data can you make?
