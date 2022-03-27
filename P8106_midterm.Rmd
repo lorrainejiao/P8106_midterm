@@ -1,85 +1,217 @@
 ---
-title: "Untitled"
+title: "P8106 Midterm Project"
 author: "Xiaoluo Jiao"
 date: "3/16/2022"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-
 library(tidyverse)
+library(caret)
+library(AppliedPredictiveModeling)
+library(glmnet)
+library(mgcv)
+library(MASS)
+library(pROC)
+
+knitr::opts_chunk$set(
+  fig.width = 6, 
+  fig.asp = .6,
+  out.width = "90%")
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
 ```
+
+# Prepare the data
 
 ```{r}
 # Prepare the data
-set.seed(105)
-data = read_csv("winequality-red.csv") %>% janitor::clean_names()
-indexTrain <- createDataPartition(y = data$quality, p = 0.8, list = FALSE)
-train <- data[indexTrain, ] 
-test <- data[-indexTrain, ] 
+data = read_csv("winequality-red.csv") %>% 
+  janitor::clean_names() %>% 
+  mutate(
+    quality = case_when(
+      quality < 7 ~ "poor", 
+      quality >= 7 ~ "good"
+    ), 
+    quality = as.factor(quality), 
+    quality = fct_relevel(quality, c("poor", "good"))
+  ) 
 
-# build matrix
+# partition
+set.seed(105)
+indexTrain <- createDataPartition(y = data$quality, p = 0.7, list = FALSE)
+train <- data[indexTrain, ] 
+test <- data[-indexTrain, ]
+
 train_x = data.matrix(train %>% dplyr::select(-quality))
 train_y = train$quality
 
 test_x = data.matrix(test %>% dplyr::select(-quality))
 test_y = test$quality
+```
 
-theme1 <- trellis.par.get()
-theme1$plot.symbol$col <- rgb(.2, .4, .2, .5)
-theme1$plot.symbol$pch <- 16
-theme1$plot.line$col <- rgb(.8, .1, .1, 1)
-theme1$plot.line$lwd <- 2
-theme1$strip.background$col <- rgb(.0, .2, .6, .2)
+# Exploratory analysis
+
+```{r}
+# numerical summary
+summary(data)
+
+# graphical summary
+theme1 <- transparentTheme(trans = .4)
 trellis.par.set(theme1)
 
-featurePlot(train_x[ ,c(1:8)], train_y ,
-            plot = "scatter", 
-            labels = c("Predictors","Outstate"),
-            type = c("p", "smooth"),
-            layout = c(4, 2))
-
-featurePlot(train_x[ ,c(9:11)], train_y ,
-            plot = "scatter", 
-            labels = c("Predictors","Outstate"),
-            type = c("p", "smooth"),
-            layout = c(2, 2))
+featurePlot(x = data[ , c(1:11)], 
+            y = data$quality,
+            scales = list(x = list(relation = "free"), 
+                          y = list(relation = "free")),
+            plot = "density", pch = "|", 
+            auto.key = list(columns = 2)
+            )
 ```
 
-```{r}
-set.seed(105)
-gam.fit = gam(quality ~ s(fixed_acidity) + s(volatile_acidity) + s(citric_acid) + s(residual_sugar) + s(chlorides) + s(free_sulfur_dioxide) + s(total_sulfur_dioxide) + s(density) + s(p_h) + s(sulphates) + s(alcohol), 
-              data = train)
-summary(gam.fit)
-plot(gam.fit, pages = 2)
+The dataset has 1599 observations and 12 variables. The outcome variable is `quality`, and the predictors are `fixed_acidity`, `volatile_acidity`, `citric_acid`, `residual_sugar`, `chlorides`, `free_sulfur_dioxide`, `total_sulfur_dioxide`, `density`, `p_h`, `sulphates`, `alcohol`. Among these variables, only `quality` is categorical, and the others are continuous. \
 
-# test error
-gam.pred = predict(gam.fit, newdata = data.frame(test_x))
-rmse_gam = sqrt(mean((gam.pred - test_y)^2))
-rmse_gam # 1519.082
+According to the density plots, we can see that a better quality score might be associated with higher amount of sulphates, higher percent alcohol content, lower amount of chlorides, lower volatile acidity, higher amount of citric acid. 
+
+# Models
+## Logistic
+
+```{r glm}
+# Logistic regression
+set.seed(105)
+glm.fit = glm(quality ~ ., 
+              data = data, 
+              subset = indexTrain, 
+              family = binomial(link = "logit"))
+summary(glm.fit)
+
+# using caret
+ctrl1 <- trainControl(method = "repeatedcv", repeats = 5,
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE)
+
+model.glm = train(train_x,
+                  train_y,
+                  method = "glm",
+                  metric = "ROC",
+                  trControl = ctrl1)
+summary(model.glm)
 ```
 
+Here, we fit a logistic regression using the training data, and at a significant level of 0.05, `volatile_acidity`, `residual_sugar`, `chlorides`, `total_sulfur_dioxide`, `sulphates`, `alcohol` appear to be statistically significant. 
 
-```{r}
-ctrl1 <- trainControl(method = "cv", number = 10)
-mars_grid <- expand.grid(degree = 1:3, 
-                         nprune = 2:15)
+## GAM
+
+```{r gam}
 set.seed(105)
+model.gam <- train(train_x,
+                   train_y,
+                   method = "gam",
+                   metric = "ROC",
+                   trControl = ctrl1)
+model.gam$finalModel
+#gam.pred = predict(model.gam, newdata = testData_median, type = "prob")[,2]
+#roc.gam = roc(testData_median$target, gam.pred)
+```
+
+## MARS
+
+```{r mars}
+set.seed(105)
+mars_grid <- expand.grid(degree = 1:3, nprune = 2:25)
+
 mars.fit <- train(train_x, train_y,
                   method = "earth",
                   tuneGrid = mars_grid,
                   trControl = ctrl1)
+summary(mars.fit)
 ggplot(mars.fit)
-coef(mars.fit$finalModel)
+mars.fit$bestTune
+```
 
-# partial dependence plot of Accept
-p1 <- pdp::partial(mars.fit, pred.var = c("Accept"), grid.resolution = 10) %>% autoplot()
-p1
+## Penalized logistic
 
-# test error
-mars.pred <- predict(mars.fit, newdata = data.frame(test_x))
-rmse_mars = sqrt(mean((mars.pred - test_y)^2))
-rmse_mars
+```{r}
+glmnGrid <- expand.grid(.alpha = seq(0, 1, length = 6),
+                        .lambda = exp(seq(-8, -1, length = 20)))
+set.seed(105)
+model.glmn <- train(train_x, 
+                    train_y,
+                    method = "glmnet",
+                    tuneGrid = glmnGrid,
+                    metric = "ROC",
+                    trControl = ctrl1)
+model.glmn$bestTune
+summary(model.glmn)
+#glmn.pred <- predict(model.glmn, newdata = testData_median, type = "prob")[,2]
+#roc.glmn <- roc(testData_median$target, glmn.pred)
+```
+
+## LDA
+
+```{r}
+set.seed(105)
+lda.fit <- lda(quality ~ ., 
+               data = data,
+               subset = indexTrain)
+plot(lda.fit)
+summary(lda.fit)
+
+#using caret 
+set.seed(105)
+model.lda <- train(train_x,
+                   train_y,
+                   method = "lda",
+                   metric = "ROC",
+                   trControl = ctrl1)
+```
+
+
+
+## Confusion Matrix for test data
+```{r}
+# confusion matrix 
+test.pred.prob <- predict(glm.fit, newdata = test,
+                           type = "response")
+test.pred <- rep("poor", length(test.pred.prob))
+test.pred[test.pred.prob > 0.5] <- "good"
+
+confusionMatrix(data = as.factor(test.pred),
+                reference = test_y,
+                positive = "good")
+```
+
+
+# Model Selection
+
+```{r}
+res <- resamples(list(glm = model.glm,
+                      glmn = model.glmn,
+                      gam = model.gam,
+                      mars = mars.fit,
+                      lda = model.lda))
+summary(res)
+bwplot(res, metric = "ROC")
+```
+
+# ROC curve
+
+```{r}
+# ROC curve for MARS
+glmn.pred <- predict(model.glmn, newdata = test_x, type = "prob")[,2]
+roc.glmn <- roc(test_y, glmn.pred)
+plot(roc.glmn, legacy.axes = TRUE)
+
+# AUC
+auc_glmn <- roc.glmn$auc[1]
+auc_glmn
 ```
 
