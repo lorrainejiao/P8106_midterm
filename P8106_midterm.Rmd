@@ -1,0 +1,85 @@
+---
+title: "Untitled"
+author: "Xiaoluo Jiao"
+date: "3/16/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+```
+
+```{r}
+# Prepare the data
+set.seed(105)
+data = read_csv("winequality-red.csv") %>% janitor::clean_names()
+indexTrain <- createDataPartition(y = data$quality, p = 0.8, list = FALSE)
+train <- data[indexTrain, ] 
+test <- data[-indexTrain, ] 
+
+# build matrix
+train_x = data.matrix(train %>% dplyr::select(-quality))
+train_y = train$quality
+
+test_x = data.matrix(test %>% dplyr::select(-quality))
+test_y = test$quality
+
+theme1 <- trellis.par.get()
+theme1$plot.symbol$col <- rgb(.2, .4, .2, .5)
+theme1$plot.symbol$pch <- 16
+theme1$plot.line$col <- rgb(.8, .1, .1, 1)
+theme1$plot.line$lwd <- 2
+theme1$strip.background$col <- rgb(.0, .2, .6, .2)
+trellis.par.set(theme1)
+
+featurePlot(train_x[ ,c(1:8)], train_y ,
+            plot = "scatter", 
+            labels = c("Predictors","Outstate"),
+            type = c("p", "smooth"),
+            layout = c(4, 2))
+
+featurePlot(train_x[ ,c(9:11)], train_y ,
+            plot = "scatter", 
+            labels = c("Predictors","Outstate"),
+            type = c("p", "smooth"),
+            layout = c(2, 2))
+```
+
+```{r}
+set.seed(105)
+gam.fit = gam(quality ~ s(fixed_acidity) + s(volatile_acidity) + s(citric_acid) + s(residual_sugar) + s(chlorides) + s(free_sulfur_dioxide) + s(total_sulfur_dioxide) + s(density) + s(p_h) + s(sulphates) + s(alcohol), 
+              data = train)
+summary(gam.fit)
+plot(gam.fit, pages = 2)
+
+# test error
+gam.pred = predict(gam.fit, newdata = data.frame(test_x))
+rmse_gam = sqrt(mean((gam.pred - test_y)^2))
+rmse_gam # 1519.082
+```
+
+
+```{r}
+ctrl1 <- trainControl(method = "cv", number = 10)
+mars_grid <- expand.grid(degree = 1:3, 
+                         nprune = 2:15)
+set.seed(105)
+mars.fit <- train(train_x, train_y,
+                  method = "earth",
+                  tuneGrid = mars_grid,
+                  trControl = ctrl1)
+ggplot(mars.fit)
+coef(mars.fit$finalModel)
+
+# partial dependence plot of Accept
+p1 <- pdp::partial(mars.fit, pred.var = c("Accept"), grid.resolution = 10) %>% autoplot()
+p1
+
+# test error
+mars.pred <- predict(mars.fit, newdata = data.frame(test_x))
+rmse_mars = sqrt(mean((mars.pred - test_y)^2))
+rmse_mars
+```
+
