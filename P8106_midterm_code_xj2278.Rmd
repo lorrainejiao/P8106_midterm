@@ -2,7 +2,7 @@
 title: "P8106 Midterm Project Code"
 author: "Xiaoluo Jiao"
 date: "3/16/2022"
-output: github_document
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
@@ -117,8 +117,9 @@ model.gam <- train(train_x,
                    trControl = ctrl1)
 model.gam$finalModel
 
+# partial dependence plot
 summary(model.gam)
-plot(model.gam$finalModel, page = 1)
+# plot(model.gam$finalModel, page = 1)
 ```
 
 ## MARS
@@ -165,7 +166,7 @@ set.seed(105)
 lda.fit <- lda(quality ~ ., 
                data = data,
                subset = indexTrain)
-plot(lda.fit)
+# plot(lda.fit)
 summary(lda.fit)
 
 #using caret 
