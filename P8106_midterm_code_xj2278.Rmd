@@ -1,5 +1,5 @@
 ---
-title: "P8106 Midterm Project"
+title: "P8106 Midterm Project Code"
 author: "Xiaoluo Jiao"
 date: "3/16/2022"
 output: github_document
@@ -48,7 +48,7 @@ data = read_csv("winequality-red.csv") %>%
   ) 
 
 # partition
-set.seed(23)
+set.seed(105)
 indexTrain <- createDataPartition(y = data$quality, p = 0.7, list = FALSE)
 train <- data[indexTrain, ] 
 test <- data[-indexTrain, ]
@@ -79,16 +79,12 @@ featurePlot(x = data[ , c(1:11)],
             )
 ```
 
-The dataset has 1599 observations and 12 variables. The outcome variable is `quality`, and the predictors are `fixed_acidity`, `volatile_acidity`, `citric_acid`, `residual_sugar`, `chlorides`, `free_sulfur_dioxide`, `total_sulfur_dioxide`, `density`, `p_h`, `sulphates`, `alcohol`. Among these variables, only `quality` is categorical, and the others are continuous. \
-
-According to the density plots, we can see that a better quality score might be associated with higher amount of sulphates, higher percent alcohol content, lower amount of chlorides, lower volatile acidity, higher amount of citric acid. 
-
 # Models
 ## Logistic
 
 ```{r glm}
 # Logistic regression
-set.seed(23)
+set.seed(105)
 glm.fit = glm(quality ~ ., 
               data = data, 
               subset = indexTrain, 
@@ -107,30 +103,28 @@ model.glm = train(train_x,
                   trControl = ctrl1)
 summary(model.glm)
 
-vip(model.glm$finalModel)
+#vip(model.glm$finalModel)
 ```
-
-Here, we fit a logistic regression using the training data, and at a significant level of 0.05, `volatile_acidity`, `residual_sugar`, `chlorides`, `total_sulfur_dioxide`, `sulphates`, `alcohol` appear to be statistically significant. 
 
 ## GAM
 
 ```{r gam}
-set.seed(23)
+set.seed(105)
 model.gam <- train(train_x,
                    train_y,
                    method = "gam",
                    metric = "ROC",
                    trControl = ctrl1)
 model.gam$finalModel
-#gam.pred = predict(model.gam, newdata = testData_median, type = "prob")[,2]
-#roc.gam = roc(testData_median$target, gam.pred)
 
+summary(model.gam)
+plot(model.gam$finalModel, page = 1)
 ```
 
 ## MARS
 
 ```{r mars}
-set.seed(23)
+set.seed(105)
 mars_grid <- expand.grid(degree = 1:3, nprune = 2:25)
 
 mars.fit <- train(train_x, train_y,
@@ -142,7 +136,7 @@ ggplot(mars.fit)
 mars.fit$bestTune
 
 #important variables
-vip(mars.fit$finalModel)
+# vip(mars.fit$finalModel)
 ```
 
 ## Penalized logistic
@@ -150,7 +144,7 @@ vip(mars.fit$finalModel)
 ```{r}
 glmnGrid <- expand.grid(.alpha = seq(0, 1, length = 6),
                         .lambda = exp(seq(-8, -1, length = 20)))
-set.seed(23)
+set.seed(105)
 model.glmn <- train(train_x, 
                     train_y,
                     method = "glmnet",
@@ -159,17 +153,15 @@ model.glmn <- train(train_x,
                     trControl = ctrl1)
 model.glmn$bestTune
 summary(model.glmn)
-#glmn.pred <- predict(model.glmn, newdata = testData_median, type = "prob")[,2]
-#roc.glmn <- roc(testData_median$target, glmn.pred)
 
 # important variable
-vip(model.glmn$finalModel)
+# vip(model.glmn$finalModel)
 ```
 
 ## LDA
 
 ```{r}
-set.seed(23)
+set.seed(105)
 lda.fit <- lda(quality ~ ., 
                data = data,
                subset = indexTrain)
@@ -177,30 +169,13 @@ plot(lda.fit)
 summary(lda.fit)
 
 #using caret 
-set.seed(23)
+set.seed(105)
 model.lda <- train(train_x,
                    train_y,
                    method = "lda",
                    metric = "ROC",
                    trControl = ctrl1)
-
 ```
-
-
-
-## Confusion Matrix for test data
-```{r}
-# confusion matrix for glmn
-test.pred.prob <- predict(model.glmn, newdata = test,
-                           type = "response")
-test.pred <- rep("not_good", length(test.pred.prob))
-test.pred[test.pred.prob > 0.5] <- "good"
-
-confusionMatrix(data = as.factor(test.pred),
-                reference = test_y,
-                positive = "good")
-```
-
 
 # Model Selection
 
@@ -209,19 +184,20 @@ res <- resamples(list(glm = model.glm,
                       glmn = model.glmn,
                       gam = model.gam,
                       mars = mars.fit,
-                      lda = model.lda))
+                      lda = model.lda), 
+                 metric = c("ROC"))
 summary(res)
-bwplot(res, metric = "ROC")
+bwplot(res, metric = c("ROC"))
 ```
 
 # ROC curve
 
 ```{r}
-glm.pred <- predict(model.glm, newdata = test_x, type = "prob")[,2]
-glmn.pred <- predict(model.glmn, newdata = test_x, type = "prob")[,2]
-gam.pred <- predict(model.gam, newdata = test_x, type = "prob")[,2]
-mars.pred <- predict(mars.fit, newdata = test_x, type = "prob")[,2]
-lda.pred <- predict(model.lda, newdata = test_x, type = "prob")[,2]
+glm.pred <- predict(model.glm, newdata = test, type = "prob")[,2]
+glmn.pred <- predict(model.glmn, newdata = test, type = "prob")[,2]
+gam.pred <- predict(model.gam, newdata = test, type = "prob")[,2]
+mars.pred <- predict(mars.fit, newdata = test, type = "prob")[,2]
+lda.pred <- predict(model.lda, newdata = test, type = "prob")[,2]
 
 roc.glm <- roc(test_y, glm.pred)
 roc.glmn <- roc(test_y, glmn.pred)

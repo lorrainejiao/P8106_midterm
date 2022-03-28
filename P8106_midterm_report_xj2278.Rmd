@@ -2,7 +2,7 @@
 title: "P8106 Midterm Project Report"
 author: "Xiaoluo Jiao"
 date: "3/26/2022"
-output: pdf_document
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
@@ -14,6 +14,8 @@ library(mgcv)
 library(MASS)
 library(pROC)
 library(vip)
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 
 knitr::opts_chunk$set(
   fig.width = 6, 
@@ -34,11 +36,11 @@ scale_fill_discrete = scale_fill_viridis_d
 
 # Introduction
 
-Recently, wine is increasingly enjoyed by a large range of consumers. For wine industry, the quality assessment of wine is a key element for wine making process since it can be used to improve wine making and help to set prices. Thus, identifying the most influential physicochemical factors for the wine quality is important. \
+Recently, wine is increasingly enjoyed by a large range of consumers. For wine industry, the quality assessment of wine is a key element for wine making process since it can be used to improve wine making and help to set prices. Thus, identifying the most influential physicochemical factors for the wine quality is important. 
 
 ## Dataset
 
-The this project, we are interested in which physiochemical properties are critical in allowing a wine to have higher quality and building a model to predict the quality of wine based on those physiochemical features. Our dataset is related to the red variant of the Portuguese "Vinho Verde" wine from the north of Portugal. It is built with 1599 red wine examples, and 11 physicochemical statistics are included. The features are: 
+In this project, we are interested in which physiochemical properties are critical in allowing a wine to have higher quality and building a model to predict the quality of wine based on those physiochemical features. Our dataset is related to the red variant of the Portuguese "Vinho Verde" wine from the north of Portugal. It is built with 1599 red wine examples, and 11 physicochemical statistics are included. The features are: 
 * fixed_acidity
 * volatile_acidity
 * citric_acid
@@ -54,45 +56,194 @@ The this project, we are interested in which physiochemical properties are criti
 
 ## Data Preparation
 
-I keep all 11 variables in the original dataset as predictors. For the outcome variable `quality`, I set a cutoff making a 7 or higher quality score gets classified as "good" and the remainder as "not good", because I am interested in a classification model for selecting "high quality wine" in this project. Then I convert `quality` into a factor variable with binary responses. There is no missing data. \
+For the outcome variable `quality`, I set a cutoff making a 7 or higher quality score gets classified as "good" and the remainder as "not good", because I am interested in a classification model for selecting "high quality wine" in this project. Then I convert `quality` into a factor variable with binary responses. There is no missing data. \
 
 After the data cleaning, I split the dataset into two parts: 70% of it goes into the training data, and 30% goes into the test data. The training data contains 1120 observations and the test data contains 479 observations. 
 
 ```{r data preparation, include=FALSE}
+# Data source: https://www.kaggle.com/vishalyo990/prediction-of-quality-of-wine/data 
+data = read_csv("winequality-red.csv") %>% 
+  janitor::clean_names() %>% 
+  mutate(
+    quality = case_when(
+      quality < 7 ~ "not_good", 
+      quality >= 7 ~ "good"
+    ), 
+    quality = as.factor(quality), 
+    quality = fct_relevel(quality, c("not_good", "good"))
+  ) 
 
+# partition
+set.seed(105)
+indexTrain <- createDataPartition(y = data$quality, p = 0.7, list = FALSE)
+train <- data[indexTrain, ] 
+test <- data[-indexTrain, ]
+
+train_x = data.matrix(train %>% dplyr::select(-quality))
+train_y = train$quality
+
+test_x = data.matrix(test %>% dplyr::select(-quality))
+test_y = test$quality
 ```
 
+# Exploratory analysis
 
-
-# Exploratory analysis/visualization
+The dataset has 1599 observations and 12 variables. The outcome variable is `quality`, and the predictors are `fixed_acidity`, `volatile_acidity`, `citric_acid`, `residual_sugar`, `chlorides`, `free_sulfur_dioxide`, `total_sulfur_dioxide`, `density`, `p_h`, `sulphates`, `alcohol`. Among these variables, only `quality` is categorical, and the others are continuous. \
 
 ```{r graphical summary}
+theme1 <- transparentTheme(trans = .4)
+trellis.par.set(theme1)
 
+featurePlot(x = data[ , c(1:11)], 
+            y = data$quality,
+            scales = list(x = list(relation = "free"), 
+                          y = list(relation = "free")),
+            plot = "density", pch = "|", 
+            auto.key = list(columns = 2)
+            )
 ```
+__Figure.1__
 
-
-Is there any interesting structure present in the data?
-What were your findings?
-Here you can use any techniques as long as they are adequately explained. If you cannot find anything interesting, then describe what you tried and show that there isn’t much visible structure. Data science is NOT manipulating the data in some way until you get an answer.
-
-
+According to the Figure.1, we can see that a better quality score might be associated with higher amount of sulphates, higher percent alcohol content, lower volatile acidity, and higher amount of citric acid. 
 
 # Models
 
-What predictor variables did you include?
-What technique did you use? What assumptions, if any, are being made by using this technique?
-If there were tuning parameters, how did you pick their values?
-Discuss the training/test performance if you have a test data set.
-Which variables play important roles in predicting the response?
-What are the limitations of the models you used (if there are any)? Are the models flexible enough to capture the underlying truth?
-...
+I keep all 11 variables in the original dataset as predictors. Since we want to predict a binary categorical response, I choose `logistics regression`, `penalized logistics regression`, `GAM`, `MARS`, and `LDA` models to train the data for classification with 5-fold cross validation. Logistic regression model assumes independent observations, linear relationship between predictors and the logit of the response variable, no multicollinearity, and no extreme outliers. GAM and MARS models do not make assumptions. LDA model assumes equal variance. \ 
 
-To train classifiers, we choose `Lasso logistics`, `MARS`, `KNN`, `LDA`, `QDA` and `TREE` models to train our data with 5-fold cross validation.
-When training, `ROC` is used as loss function for our model, as we intent to build a model with highest classification ability to predict whether a client has heart disease. 
+Logistic regression, penalized logistic regression and LDA do not have tuning parameters. Since I have 11 predictors, I choose to tune the order from 1 to 3 and prune from 8 to 15 and decide the final values through cross validation for MARS. In the case of penalized logistics regression, I also tune the alpha and lambda via cross validations. \ 
 
-penalized logistic: to add penalty to our loss, we can shrink the coefficients to correlated predictors towards each other by tuning alpha and lambda
- 
+```{r glm, include=FALSE}
+# Logistic regression
+set.seed(105)
+glm.fit = glm(quality ~ ., 
+              data = data, 
+              subset = indexTrain, 
+              family = binomial(link = "logit"))
+# summary(glm.fit)
+
+# using caret
+ctrl1 <- trainControl(method = "repeatedcv", repeats = 5,
+                     summaryFunction = twoClassSummary,
+                     classProbs = TRUE)
+
+model.glm = train(train_x,
+                  train_y,
+                  method = "glm",
+                  metric = "ROC",
+                  trControl = ctrl1)
+# summary(model.glm)
+```
+
+```{r penalized glm, include=FALSE}
+glmnGrid <- expand.grid(.alpha = seq(0, 1, length = 6),
+                        .lambda = exp(seq(-8, -1, length = 20)))
+set.seed(105)
+model.glmn <- train(train_x, 
+                    train_y,
+                    method = "glmnet",
+                    tuneGrid = glmnGrid,
+                    metric = "ROC",
+                    trControl = ctrl1)
+# model.glmn$bestTune
+# summary(model.glmn)
+```
+
+```{r gam, include=FALSE}
+set.seed(105)
+model.gam <- train(train_x,
+                   train_y,
+                   method = "gam",
+                   metric = "ROC",
+                   trControl = ctrl1)
+#gam.pred = predict(model.gam, newdata = testData_median, type = "prob")[,2]
+#roc.gam = roc(testData_median$target, gam.pred)
+```
+
+```{r mars, include=FALSE}
+set.seed(105)
+mars_grid <- expand.grid(degree = 1:3, nprune = 2:25)
+
+mars.fit <- train(train_x, train_y,
+                  method = "earth",
+                  tuneGrid = mars_grid,
+                  trControl = ctrl1)
+#summary(mars.fit)
+#ggplot(mars.fit)
+#mars.fit$bestTune
+
+#important variables
+# vip(mars.fit$finalModel)
+```
+
+```{r lda, include=FALSE}
+set.seed(105)
+lda.fit <- lda(quality ~ ., 
+               data = data,
+               subset = indexTrain)
+#plot(lda.fit)
+#summary(lda.fit)
+
+#using caret 
+set.seed(105)
+model.lda <- train(train_x,
+                   train_y,
+                   method = "lda",
+                   metric = "ROC",
+                   trControl = ctrl1)
+```
+
+```{r roc}
+res <- resamples(list(glm = model.glm,
+                      glmn = model.glmn,
+                      gam = model.gam,
+                      mars = mars.fit,
+                      lda = model.lda), 
+                 metric = "ROC")
+# summary(res)
+bwplot(res, metric = "ROC")
+```
+__Figure.2__
+
+According to Figure.2, we can see that by resampling our training data, among the five models, GAM model has the highest ROC value, indicating a better training performance.
+
+```{r auc}
+glm.pred <- predict(model.glm, newdata = test, type = "prob")[,2]
+glmn.pred <- predict(model.glmn, newdata = test, type = "prob")[,2]
+gam.pred <- predict(model.gam, newdata = test, type = "prob")[,2]
+mars.pred <- predict(mars.fit, newdata = test, type = "prob")[,2]
+lda.pred <- predict(model.lda, newdata = test, type = "prob")[,2]
+
+roc.glm <- roc(test_y, glm.pred)
+roc.glmn <- roc(test_y, glmn.pred)
+roc.gam <- roc(test_y, gam.pred)
+roc.mars <- roc(test_y, mars.pred)
+roc.lda <- roc(test_y, lda.pred)
+
+# AUC
+auc <- c(roc.glm$auc[1], roc.glmn$auc[1], roc.gam$auc[1], roc.mars$auc[1], roc.lda$auc[1])
+
+# ROC curves
+modelNames <- c("glm", "glmn", "gam", "mars", "lda")
+
+ggroc(list(roc.glm, roc.glmn, roc.gam, roc.mars, roc.lda), legacy.axes = TRUE) +
+scale_color_discrete(labels = paste0(modelNames, " (", round(auc,3),")"),
+name = "Models (AUC)") +
+geom_abline(intercept = 0, slope = 1, color = "grey")
+```
+__Figure.3__ 
+
+Using the test data, a new ROC curves and the corresponding AUC is shown in Figure.3. We can also see that the GAM model has a smoother ROC curve which is closer to the upper left corner of the graph, and it has the highest AUC value (0.866), which indicates that it has the best testing performance. Since the GAM model has the highest ROC and AUC values for both training and test data, I would choose GAM model to predict the quality level of the wine. 
+
+```{r important variable}
+summary(model.gam)
+#plot(model.gam$finalModel, page = 1)
+```
+__Figure.4__ Partial dependence plots of each continuous predictors in the model, reflecting marginal effects of each predictor. \
+
+Based on my GAM model, at a significant level of 0.05, `free_sulfur_dioxide`, `alcohol`, `residual_sugar`, `sulphates`, `volatile_acidity`, `total_sulfur_dioxide`, and `density` appear to be statistically significant in predicting response. The partial dependence plots (Figure.4) show similar trends. \
+
+One disadvantage of GAM is that the model is less interpretable. In a GAM model, each predictor has converted into a smooth covariate which has nonlinear function, which complicates the interpretation of each parameter.
 
 # Conclusions
 
-What were your findings? Are they what you expect? What insights into the data can you make?
+In conclusion, GAM model is the best model to predict the quality level of wine. Similar as we expected in the exploratory part, `alcohol`, `sulphates`, `volatile_acidity`, `total_sulfur_dioxide`, and `density` are statistically significant predictors for predicting the quality level; besides, `free_sulfur_dioxide` and `residual_sugar` are also important variables. The model provide a good reference for the wine industry on the quality assessment of wine during the wine making process. 
